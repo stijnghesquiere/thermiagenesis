@@ -1,6 +1,6 @@
 # Thermia Genesis
 
-[![GitHub Release][releases-shield]][releases]
+[![Upstream release][releases-shield]][releases]
 [![GitHub Activity][commits-shield]][commits]
 [![License][license-shield]](LICENSE)
 
@@ -14,18 +14,32 @@
 [![Discord][discord-shield]][discord]
 [![Community Forum][forum-shield]][forum]
 
-This custom component for [home assistant](https://home-assistant.io/) will let you connect your Thermia Diplomat Inverter or
-Mega heat pump to Home Assistant using ModbusTCP.
+This custom integration connects Thermia Diplomat Inverter, Mega, and Calibra Eco series
+heat pumps to [Home Assistant](https://www.home-assistant.io/) over Modbus TCP.
 
-Supports all register values, 300+ entities are avaliable (most are disabled by default)
+For Calibra Eco, select `inverter` as the heat pump model during setup.
+
+The integration defines more than 300 entities. Availability depends on the model
+and firmware, and most entities are disabled by default.
 
 **This component will set up the following platforms.**
 
-| Platform        | Description                         |
-| --------------- | ----------------------------------- |
-| `binary_sensor` | Show something `True` or `False`.   |
-| `sensor`        | Show info from Thermia Genesis API. |
-| `switch`        | Switch something `True` or `False`. |
+| Platform        | Description                                 |
+| --------------- | ------------------------------------------- |
+| `binary_sensor` | Show something `True` or `False`.            |
+| `climate`       | View and adjust temperature settings.       |
+| `number`        | View and adjust numeric heat pump settings. |
+| `sensor`        | Show info from Thermia Genesis API.         |
+| `switch`        | Switch something `True` or `False`.          |
+
+## Changes in this fork
+
+- Modbus reads, writes, connection handling, and the setup probe run off the Home
+  Assistant event loop. Each connection handles one operation at a time.
+- Number entities use the shared 30-second refresh. Climate and switch entities
+  also use the shared coordinator for manual refreshes.
+- Climate entities use the native temperature API introduced in Home Assistant
+  Core 2026.11, with support for the earlier API on older Core releases.
 
 ## Installation
 
@@ -41,19 +55,17 @@ Using your HA configuration directory (folder) as a starting point you should no
 
 ```text
 custom_components/thermiagenesis/translations/en.json
-custom_components/thermiagenesis/translations/fr.json
-custom_components/thermiagenesis/translations/nb.json
-custom_components/thermiagenesis/translations/sensor.en.json
-custom_components/thermiagenesis/translations/sensor.fr.json
-custom_components/thermiagenesis/translations/sensor.nb.json
-custom_components/thermiagenesis/translations/sensor.nb.json
 custom_components/thermiagenesis/__init__.py
-custom_components/thermiagenesis/api.py
 custom_components/thermiagenesis/binary_sensor.py
+custom_components/thermiagenesis/climate.py
 custom_components/thermiagenesis/config_flow.py
 custom_components/thermiagenesis/const.py
+custom_components/thermiagenesis/entity.py
 custom_components/thermiagenesis/manifest.json
+custom_components/thermiagenesis/modbus.py
+custom_components/thermiagenesis/number.py
 custom_components/thermiagenesis/sensor.py
+custom_components/thermiagenesis/strings.json
 custom_components/thermiagenesis/switch.py
 ```
 
@@ -91,6 +103,6 @@ Code template was mainly taken from [@Ludeeus](https://github.com/ludeeus)'s [in
 [maintenance-shield]: https://img.shields.io/badge/maintainer-%40cjne-blue.svg?style=for-the-badge
 [pre-commit]: https://github.com/pre-commit/pre-commit
 [pre-commit-shield]: https://img.shields.io/badge/pre--commit-enabled-brightgreen?style=for-the-badge
-[releases-shield]: https://img.shields.io/github/release/cjne/thermiagenesis.svg?style=for-the-badge
+[releases-shield]: https://img.shields.io/github/release/cjne/thermiagenesis.svg?label=upstream%20release&style=for-the-badge
 [releases]: https://github.com/cjne/thermiagenesis/releases
 [user_profile]: https://github.com/cjne
