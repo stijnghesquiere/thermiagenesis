@@ -110,7 +110,7 @@ class ThermiaSwitch(SwitchEntity):
 
     async def async_update(self):
         """Update Thermia entity."""
-        await self.coordinator.wantsRefresh(self.kind)
+        await self.coordinator.async_request_refresh()
 
     async def async_turn_on(self, **kwargs):
         """Turn the entity on."""

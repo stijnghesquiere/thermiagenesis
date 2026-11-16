@@ -51,7 +51,9 @@ def range_for_unit(unit):
 
 
 class ThermiaGenericNumber(NumberEntity):
-    """Define a Thermia generic sensor."""
+    """Define a number updated by the shared Thermia coordinator."""
+
+    _attr_should_poll = False
 
     def __init__(self, coordinator, kind, device_info):
         """Initialize."""

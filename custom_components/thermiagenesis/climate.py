@@ -1,4 +1,5 @@
 """ Thermia Genesis climate sensors."""
+
 import logging
 
 from homeassistant.components.climate import ClimateEntity
@@ -13,7 +14,6 @@ from homeassistant.components.climate.const import HVACAction
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.const import UnitOfTemperature
-from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import ATTR_DEFAULT_ENABLED
 from .const import ATTR_ENABLED
@@ -55,6 +55,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 class ThermiaClimateSensor(ClimateEntity):
     """Define a Thermia climate sensor."""
 
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _enable_turn_on_off_backwards_compatibility = False
 
     def __init__(self, coordinator, kind, device_info):
@@ -68,11 +69,6 @@ class ThermiaClimateSensor(ClimateEntity):
         self.coordinator = coordinator
         self._hvac_mode = HVACAction.IDLE
         self._attrs = {}
-
-    @property
-    def temperature_unit(self) -> str:
-        """Return the unit of measurement used by the platform."""
-        return UnitOfTemperature.CELSIUS
 
     @property
     def supported_features(self) -> int:
@@ -91,14 +87,14 @@ class ThermiaClimateSensor(ClimateEntity):
         return self._name
 
     @property
-    def current_temperature(self):
-        """Return the current temperature."""
+    def native_current_temperature(self):
+        """Return the current temperature in Celsius."""
         val = self.coordinator.data.get(self.meta[ATTR_CURRENT_TEMPERATURE])
         return val
 
     @property
-    def target_temperature_low(self):
-        """Return the target low temperature."""
+    def native_target_temperature_low(self):
+        """Return the lower target temperature in Celsius."""
         if ATTR_TARGET_TEMP_LOW not in self.meta:
             return None
         val = self.coordinator.data.get(self.meta[ATTR_TARGET_TEMP_LOW])
@@ -106,21 +102,17 @@ class ThermiaClimateSensor(ClimateEntity):
 
     @property
     def min_temp(self) -> float:
-        """Return the minimum temperature."""
-        return TemperatureConverter.convert(
-            self.meta[ATTR_MIN_TEMP], UnitOfTemperature.CELSIUS, self.temperature_unit
-        )
+        """Return the minimum temperature in Celsius."""
+        return self.meta[ATTR_MIN_TEMP]
 
     @property
     def max_temp(self) -> float:
-        """Return the maximum temperature."""
-        return TemperatureConverter.convert(
-            self.meta[ATTR_MAX_TEMP], UnitOfTemperature.CELSIUS, self.temperature_unit
-        )
+        """Return the maximum temperature in Celsius."""
+        return self.meta[ATTR_MAX_TEMP]
 
     @property
-    def target_temperature_high(self):
-        """Return the target high temperature."""
+    def native_target_temperature_high(self):
+        """Return the upper target temperature in Celsius."""
         if ATTR_TARGET_TEMP_HIGH not in self.meta:
             return None
         val = self.coordinator.data.get(self.meta[ATTR_TARGET_TEMP_HIGH])
@@ -135,12 +127,20 @@ class ThermiaClimateSensor(ClimateEntity):
         return val
 
     @property
-    def target_temperature(self):
-        """Return the target temperature."""
+    def native_target_temperature(self):
+        """Return the target temperature in Celsius."""
         if ATTR_TEMPERATURE not in self.meta:
             return None
         val = self.coordinator.data.get(self.meta[ATTR_TEMPERATURE])
         return val
+
+    # Compatibility with Home Assistant Core releases before 2026.11.
+    if not hasattr(ClimateEntity, "native_temperature_unit"):
+        _attr_temperature_unit = _attr_native_temperature_unit
+        current_temperature = native_current_temperature
+        target_temperature = native_target_temperature
+        target_temperature_high = native_target_temperature_high
+        target_temperature_low = native_target_temperature_low
 
     @property
     def unique_id(self):
@@ -196,7 +196,7 @@ class ThermiaClimateSensor(ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: str):
         """Set new target hvac mode."""
-        print(f"Set hvac mode {hvac_mode}")
+        _LOGGER.debug("Set HVAC mode %s", hvac_mode)
         if hvac_mode == HVACMode.OFF:
             await self.coordinator._async_set_data(self.meta[ATTR_ENABLED], False)
         if hvac_mode == HVACMode.AUTO:
@@ -231,12 +231,10 @@ class ThermiaClimateSensor(ClimateEntity):
 
     async def async_update(self):
         """Update Thermia entity."""
-        await self.coordinator.wantsRefresh(self.kind)
+        await self.coordinator.async_request_refresh()
 
     async def async_set_temperature(self, **kwargs):
         """Set new target temperature."""
-        print("Set temperature")
-        print(kwargs)
         writes = {}
         if ATTR_TARGET_TEMP_LOW in kwargs:
             writes[self.meta[ATTR_TARGET_TEMP_LOW]] = kwargs[ATTR_TARGET_TEMP_LOW]
@@ -244,6 +242,6 @@ class ThermiaClimateSensor(ClimateEntity):
             writes[self.meta[ATTR_TARGET_TEMP_HIGH]] = kwargs[ATTR_TARGET_TEMP_HIGH]
         if ATTR_TEMPERATURE in kwargs:
             writes[self.meta[ATTR_TEMPERATURE]] = kwargs[ATTR_TEMPERATURE]
-        for i, (reg, val) in enumerate(writes.items()):
-            print(f"Write {reg} value {val}")
+        for reg, val in writes.items():
+            _LOGGER.debug("Write %s value %s", reg, val)
             await self.coordinator._async_set_data(reg, val)

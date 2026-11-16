@@ -1,4 +1,5 @@
 """Adds config flow for ThermiaGenesis heat pump."""
+
 import logging
 
 import voluptuous as vol
@@ -7,11 +8,10 @@ from homeassistant.const import CONF_HOST
 from homeassistant.const import CONF_PORT
 from homeassistant.const import CONF_TYPE
 from homeassistant.helpers.selector import selector
-from pythermiagenesis import ThermiaConnectionError
-from pythermiagenesis import ThermiaGenesis
 from pythermiagenesis.const import ATTR_COIL_ENABLE_HEAT
 
 from .const import DOMAIN  # pylint:disable=unused-import
+from .modbus import ThermiaModbusClient
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
@@ -26,10 +26,9 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ThermiaGenesisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Porsche Connect."""
+    """Handle a config flow for a Thermia Genesis heat pump."""
 
     VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
         """Initialize."""
@@ -41,13 +40,16 @@ class ThermiaGenesisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
         """
 
-        thermia = ThermiaGenesis(
+        thermia = ThermiaModbusClient(
+            self.hass,
             data[CONF_HOST],
             data[CONF_PORT],
-            kind=data[CONF_TYPE],
+            data[CONF_TYPE],
         )
         _LOGGER.debug("Attempt connect...")
-        await thermia.async_update(only_registers=[ATTR_COIL_ENABLE_HEAT])
+        registers = await thermia.async_read((ATTR_COIL_ENABLE_HEAT,))
+        if ATTR_COIL_ENABLE_HEAT not in registers:
+            raise ConnectionError("Heat pump did not return the heating-enable coil")
         return {"title": data[CONF_HOST] + ":" + str(data[CONF_PORT])}
 
     async def _show_config_form(self, user_input):  # pylint: disable=unused-argument
@@ -78,8 +80,8 @@ class ThermiaGenesisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 info = await self._validate_input(user_input)
                 return self.async_create_entry(title=info["title"], data=user_input)
-            except ThermiaConnectionError:
-                _LOGGER.info("Connect error")
+            except OSError as error:
+                _LOGGER.info("Connect error: %s", error)
                 self._errors["base"] = "connection_error"
             except ValueError:
                 _LOGGER.info("Value error")

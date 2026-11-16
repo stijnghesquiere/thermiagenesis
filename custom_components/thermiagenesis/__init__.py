@@ -1,23 +1,20 @@
 """The ThermiaGenesis component."""
-import asyncio
+
 import logging
-import time
-from datetime import datetime
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.const import CONF_PORT
 from homeassistant.const import CONF_TYPE
-from homeassistant.helpers.typing import ConfigType
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.update_coordinator import UpdateFailed
-from pythermiagenesis import ThermiaGenesis
 
 from .const import DOMAIN
+from .modbus import ThermiaModbusClient
 
 PLATFORMS = ["sensor", "binary_sensor", "climate", "switch", "number"]
 
@@ -39,12 +36,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     kind = entry.data[CONF_TYPE]
 
     coordinator = ThermiaGenesisDataUpdateCoordinator(
-        hass, host=host, port=port, kind=kind
+        hass, entry, host=host, port=port, kind=kind
     )
-    await coordinator.async_refresh()
-
-    if not coordinator.last_update_success:
-        raise ConfigEntryNotReady
+    await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
@@ -56,16 +50,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Unload a config entry."""
-    unload_ok = all(
-        await asyncio.gather(
-            *[
-                hass.config_entries.async_forward_entry_unload(entry, component)
-                for component in PLATFORMS
-            ]
-        )
-    )
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        # Drain any in-flight operation before a reload can open a new socket.
+        await coordinator.async_shutdown()
+        del hass.data[DOMAIN][entry.entry_id]
 
     return unload_ok
 
@@ -73,48 +63,40 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 class ThermiaGenesisDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching ThermiaGenesis data from the heat pump."""
 
-    def __init__(self, hass, host, port, kind):
+    def __init__(self, hass, entry, host, port, kind):
         """Initialize."""
-        self.thermia = ThermiaGenesis(
-            host, port=port, kind=kind, delay=0.05, max_registers=16
-        )
+        self._modbus = ThermiaModbusClient(hass, host, port, kind, delay=0.05)
         self.kind = kind
         self.attributes = {}
 
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=DOMAIN,
             update_interval=SCAN_INTERVAL,
         )
 
     async def _async_update_data(self):
         """Update data via library."""
-        data = {}
         try:
-            start_time = time.time()
-            registers = self.attributes.keys()
-            data = await self.thermia.async_update(only_registers=registers)
-            # for reg in registers:
-            #    #await self.thermia.async_update(only_registers=[reg]) #registers)
-            #    print(f"Got {reg}: {self.thermia.data[reg]}")
-            _LOGGER.debug(data)
-            end_time = time.time()
-            _LOGGER.debug(
-                f"{datetime.now()} Fetching heatpump data took {end_time - start_time} s"
-            )
-
-        except (ConnectionError) as error:
-            raise UpdateFailed(error)
+            data = await self._modbus.async_read(self.attributes)
+        except OSError as error:
+            raise UpdateFailed(str(error)) from error
+        _LOGGER.debug("Heat pump data: %s", data)
         return data
 
     async def _async_set_data(self, register, value):
         """Set data via library."""
         try:
-            await self.thermia.async_set(register, value)
-        except (ConnectionError) as error:
-            raise UpdateFailed(error)
-        return self.thermia.data
+            await self._modbus.async_write(register, value)
+        except OSError as error:
+            raise UpdateFailed(str(error)) from error
+
+    async def async_shutdown(self):
+        """Stop refreshing and wait for active Modbus I/O."""
+        await super().async_shutdown()
+        await self._modbus.async_close()
 
     def registerAttribute(self, attribute):
         if type(attribute) is list:
@@ -124,6 +106,3 @@ class ThermiaGenesisDataUpdateCoordinator(DataUpdateCoordinator):
         else:
             _LOGGER.info(f"Register attribute for update: {attribute}")
             self.attributes[attribute] = True
-
-    async def wantsRefresh(self, attribute):
-        await self.coordinator.async_request_refresh()
